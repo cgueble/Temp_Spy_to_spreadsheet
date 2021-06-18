@@ -190,6 +190,7 @@ void loop() {
     Serial.println("power suply sensors ");
     delay(1000);
     InitSensors();
+    delay(60000);
     TemperatureMeasurment();
     lastPostTime = millis();
     Update_needed = true;
@@ -599,7 +600,7 @@ void TemperatureMeasurment(){
   printData(insideThermometer);
   printData(outsideThermometer);
     
-  TempInt = sensors.getTempCByIndex(0);
+  TempInt = sensors.getTempCByIndex(0)+6;// Offset de -6°C sur le thermometre "interieure" => compensation de +6
   TempExt = sensors.getTempCByIndex(1);
   
 }
