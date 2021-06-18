@@ -2,6 +2,8 @@
 #include <WiFiUdp.h>
 #include <TimeLib.h>
 #include <PubSubClient.h>
+#include <OneWire.h> 
+#include <DallasTemperature.h>
 //#include <Codes_CGU.h>// contient toutes les variables avec les loggins et les codes
 #include <C:\Users\chris\OneDrive\Documents\Arduino\libraries\Codes_CGU.h>
 //****************Configuration pour Debug****************
@@ -29,7 +31,7 @@ String Release_Date = "12-02-2018";
 //Variables de gestion de l'etat de la porte et des mails
 const unsigned int localPort = 2390;
 
-boolean Update_needed = false;
+boolean Update_needed = true;
 long rssi; //pour mesure RSSI
 
 //variables pour le gestion de la date et du temps
@@ -47,12 +49,20 @@ int Month;     // Jan is month 0
 int Year;      // the Year minus 1900
 int WeekDay;
 
+//Variables pour la mesure de temperature
+float  TempInt = 0;
+float  TempExt = 0;
+
 //Variable pour la gestion de thingspeak
 const char* server = "mqtt.thingspeak.com";// Define the ThingSpeak MQTT broker
-unsigned long lastConnectionTime = 0; // track the last connection time
+
 const unsigned long postingInterval = 1 * 60 * 1L * 1000L;// post data every 1 min
 const unsigned long RegularpostingInterval = 10 * 60 * 1L * 1000L;// post data every 10 min
 const unsigned long whatchDogValue = 60 * 60 * 1000L;// WhatchDog Value 60min
+
+unsigned long lastConnectionTime = 0; // track the last connection time
+unsigned long lastPostTime = 0;// track the last Post time
+
 time_t epoch = 0; // contient
 IPAddress ip;
 IPAddress timeServerIP;
@@ -60,6 +70,22 @@ IPAddress timeServerIP;
 WiFiClient client;  // Initialize the Wifi client library.
 WiFiUDP udp; //A UDP instance to let us send and receive packets over UDP
 PubSubClient mqttClient(client); // Initialize the PuBSubClient library
+
+// Data wire is plugged into port 2 on the Arduino
+#define ONE_WIRE_BUS 2
+#define TEMPERATURE_PRECISION 9
+
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
+
+// arrays to hold device addresses
+//DeviceAddress insideThermometer, outsideThermometer;
+
+DeviceAddress insideThermometer    = { 0x28, 0x0C, 0x01, 0x07, 0xA8, 0x9E, 0x01, 0xBA };//280C0107A89E01BA
+DeviceAddress outsideThermometer   = { 0x28, 0xFF, 0xD6, 0x1B, 0xC4, 0x17, 0x05, 0x56 };//28FFD61BC4170556
 
 //************************Debut de setup*************************
 void setup() {
@@ -69,17 +95,70 @@ void setup() {
     Serial.print("debut de setup. SERIAL_PORT_LOG_ENABLE= ");
     Serial.println(SERIAL_PORT_LOG_ENABLE);
   }
+
+  // Start up the library
+  sensors.begin();
+
+  // locate devices on the bus
+  Serial.print("Locating devices...");
+  Serial.print("Found ");
+  Serial.print(sensors.getDeviceCount(), DEC);
+  Serial.println(" devices.");
+
+  // report parasite power requirements
+  Serial.print("Parasite power is: ");
+  if (sensors.isParasitePowerMode()) Serial.println("ON");
+  else Serial.println("OFF");
+
+  // Search for devices on the bus and assign based on an index. Ideally,
+  // you would do this to initially discover addresses on the bus and then
+  // use those addresses and manually assign them (see above) once you know
+  // the devices on your bus (and assuming they don't change).
+  //
+  // method 1: by index
+  if (!sensors.getAddress(insideThermometer, 0)) Serial.println("Unable to find address for Device 0");
+  if (!sensors.getAddress(outsideThermometer, 1)) Serial.println("Unable to find address for Device 1");
+
+  // method 2: search()
+  // search() looks for the next device. Returns 1 if a new address has been
+  // returned. A zero might mean that the bus is shorted, there are no devices,
+  // or you have already retrieved all of them. It might be a good idea to
+  // check the CRC to make sure you didn't get garbage. The order is
+  // deterministic. You will always get the same devices in the same order
+  //
+  // Must be called before search()
+  //oneWire.reset_search();
+  // assigns the first address found to insideThermometer
+  //if (!oneWire.search(insideThermometer)) Serial.println("Unable to find address for insideThermometer");
+  // assigns the seconds address found to outsideThermometer
+  //if (!oneWire.search(outsideThermometer)) Serial.println("Unable to find address for outsideThermometer");
+
+  // show the addresses we found on the bus
+  Serial.print("Device 0 Address: ");
+  printAddress(insideThermometer);
+  Serial.println();
+
+  Serial.print("Device 1 Address: ");
+  printAddress(outsideThermometer);
+  Serial.println();
+
+  // set the resolution to 9 bit per device
+  sensors.setResolution(insideThermometer, TEMPERATURE_PRECISION);
+  sensors.setResolution(outsideThermometer, TEMPERATURE_PRECISION);
+
+  Serial.print("Device 0 Resolution: ");
+  Serial.print(sensors.getResolution(insideThermometer), DEC);
+  Serial.println();
+
+  Serial.print("Device 1 Resolution: ");
+  Serial.print(sensors.getResolution(outsideThermometer), DEC);
+  Serial.println();
+  
   //Set up PIN in INPUT
 
 
   //Set up PIN in OUTPUT
 
-
-  if (SERIAL_PORT_LOG_ENABLE) {
-    Serial.println(F("IlsPorte= 2 (GPIO2), INPUT ExtPulldown"));
-    Serial.println(F("Verrou= 3 (GPIO3), INPUT_PULLUP"));
-    Serial.println(F("Begining of Setup"));
-  }
 
   while ((WiFi.status() != WL_CONNECTED)) {
     WifiConnexionManager();//Recherche reseau wifi + connexion
@@ -120,9 +199,13 @@ void setup() {
   if (SERIAL_PORT_LOG_ENABLE) {
     Serial.println("End of Setup");
   }
+  TemperatureMeasurment();
 }// fin set up
 //******************end of setup*************************************
 //*******************************************************************
+
+
+
 //******************start of loop************************************
 void loop() {
 
@@ -149,6 +232,13 @@ void loop() {
     setup();
   }
 
+  if (millis() - lastPostTime > RegularpostingInterval)
+  {
+    TemperatureMeasurment();
+    lastPostTime = millis();
+    Update_needed = true;
+  }  
+
     // si un changement de status est detecte, on essaye de mettre a jour le statut thingspeak
   if (Update_needed == true) {
     mqttpublishtry();
@@ -168,18 +258,18 @@ void UpdateTime() {
   Month = month();
   Day = day();
   WeekDay = weekday();
-
+//2014-12-31 23:59:59
   if ((Month <= 3) || (Month > 10)) { // on est un mois d'hiver
     if ((Month == 3) && (Day - WeekDay > 24)) { //on est dans le dernier mois d'hiver et aprÃ¨s le dernier dimanche
       Hour = Hour + 2;
-      StringTime += " UTC+2: ";
+      //StringTime += " UTC+2: ";
       if (Hour >= 22){
         Day = Day + 1;
       }
     }
     else { // toute la periode hivernale
       Hour = Hour + 1;
-      StringTime += " UTC+1: ";
+      //StringTime += " UTC+1: ";
         if (Hour >= 23){
         Day = Day + 1;
       }
@@ -188,14 +278,14 @@ void UpdateTime() {
   else { // on est un mois d'aout
     if ((Month == 10) && (Day - WeekDay > 24)) { //on est dans le dernier mois d'aout et apres le dernier dimanche
       Hour = Hour + 1;
-      StringTime += " UTC+1: ";
+      //StringTime += " UTC+1: ";
       if (Hour >= 23){
         Day = Day + 1;
       }
     }
     else { // toute la periode estivale
       Hour = Hour + 2;
-      StringTime += " UTC+2: ";
+      //StringTime += " UTC+2: ";
       if (Hour >= 22){
         Day = Day + 1;
       }
@@ -203,19 +293,23 @@ void UpdateTime() {
   }
 
   //StringDate += "Date: ";
-  if (Day < 10) {
-    StringDate += "0";
-  }
-  StringDate += Day;
-  if (Month < 10) {
-    StringDate += "/0";
+  StringDate += Year;
+  StringDate += "-";
+    if (Month < 10) {
+    StringDate += "-0";
   }
   else {
     StringDate += "/";
   }
   StringDate += Month;
   StringDate += "/";
-  StringDate += Year;
+  
+  if (Day < 10) {
+    StringDate += "0";
+  }
+  StringDate += Day;
+
+  
 
   if (Hour < 10) {
     StringTime += "0";
@@ -353,11 +447,11 @@ void reconnect()
 }
 
 void mqttpublish() {
-  String data = String("field1=" + String(1, DEC) + "&field2=" + String(2, DEC) + "&field3=" + String(rssi, DEC));
+  String data = String("field1=" + String(TempInt, DEC) + "&field2=" + String(TempExt, DEC) + "&field3=" + String(rssi, DEC));
   // Get the data string length
   int length = data.length();
   char msgBuffer[length];
-  char* PublishCmd = "channels/9245/publish/SSUT4K9H6PVUIRNT";
+  char* PublishCmd = "channels/1418978/publish/W5I8JXWTKFVJPEJY";
   // Convert data string to character buffer
   data.toCharArray(msgBuffer, length + 1);
   Serial.println(msgBuffer);
@@ -382,8 +476,11 @@ void mqttpublishtry() {
     Update_needed = false;
   }
     if (SERIAL_PORT_LOG_ENABLE) {
-    Serial.print("millis() - lastConnectionTime = ");
-    Serial.println(millis() - lastConnectionTime );
+    Serial.print("Update if (millis() - lastConnectionTime) = ");
+    Serial.print(millis() - lastConnectionTime );
+    Serial.print(" > postingInterval = ");
+    Serial.println(postingInterval );
+    
     }
 }
 
@@ -522,3 +619,63 @@ void WaitConnexion(){
       Serial.println("End of WaitConnexion");  
       }   
 }// end Waitconnexion
+
+void TemperatureMeasurment(){
+  // call sensors.requestTemperatures() to issue a global temperature
+  // request to all devices on the bus
+  Serial.print("Requesting temperatures...");
+  sensors.requestTemperatures();
+  Serial.println("DONE");
+
+  // print the device information
+  printData(insideThermometer);
+  printData(outsideThermometer);
+    
+  TempInt = sensors.getTempCByIndex(0);
+  TempExt = sensors.getTempCByIndex(1);
+  
+}
+
+// function to print a device address
+void printAddress(DeviceAddress deviceAddress)
+{
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    // zero pad the address if necessary
+    if (deviceAddress[i] < 16) Serial.print("0");
+    Serial.print(deviceAddress[i], HEX);
+  }
+}
+
+// function to print the temperature for a device
+void printTemperature(DeviceAddress deviceAddress)
+{
+  float tempC = sensors.getTempC(deviceAddress);
+  if(tempC == DEVICE_DISCONNECTED_C) 
+  {
+    Serial.println("Error: Could not read temperature data");
+    return;
+  }
+  Serial.print("Temp C: ");
+  Serial.print(tempC);
+  Serial.print(" Temp F: ");
+  Serial.print(DallasTemperature::toFahrenheit(tempC));
+}
+
+// function to print a device's resolution
+void printResolution(DeviceAddress deviceAddress)
+{
+  Serial.print("Resolution: ");
+  Serial.print(sensors.getResolution(deviceAddress));
+  Serial.println();
+}
+
+// main function to print information about a device
+void printData(DeviceAddress deviceAddress)
+{
+  Serial.print("Device Address: ");
+  printAddress(deviceAddress);
+  Serial.print(" ");
+  printTemperature(deviceAddress);
+  Serial.println();
+}
