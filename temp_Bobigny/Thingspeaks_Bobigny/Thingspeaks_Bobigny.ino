@@ -188,10 +188,15 @@ void loop() {
  // {
     digitalWrite(SensorPowerSupply, HIGH);
     Serial.println("power suply sensors ");
+    Serial.println("delay 1s ");
     delay(1000);
     InitSensors();
-    delay(60000);
+    Serial.println("delay 50s ");
+    delay(50000);
     TemperatureMeasurment();
+     if((TempInt<-40) or (TempExt<-40)){
+      TemperatureMeasurment();
+     }
     lastPostTime = millis();
     Update_needed = true;
     digitalWrite(SensorPowerSupply, LOW);
@@ -201,7 +206,7 @@ void loop() {
     // si un changement de status est detecte, on essaye de mettre a jour le statut thingspeak
   if (Update_needed == true) {
     mqttpublishtry();
-    gotoSleep(10);//time to go to sleep in minutes
+    gotoSleep(9);//time to go to sleep in minutes
   }
  
 
