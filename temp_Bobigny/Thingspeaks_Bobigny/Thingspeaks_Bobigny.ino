@@ -91,6 +91,8 @@ DeviceAddress outsideThermometer   = { 0x28, 0xFF, 0xD6, 0x1B, 0xC4, 0x17, 0x05,
 
 //************************Debut de setup*************************
 void setup() {
+ int cpt;
+ 
   delay(5000);
   if (SERIAL_PORT_LOG_ENABLE) {
     Serial.begin(115200);
@@ -109,10 +111,10 @@ void setup() {
   //Set up PIN in INPUT
 
 
-  //Set up PIN in OUTPUT
+ 
+  cpt = 2;
 
-
-  while ((WiFi.status() != WL_CONNECTED)) {
+  while((cpt > 0) && ((WiFi.status() != WL_CONNECTED))){
     WifiConnexionManager();//Recherche reseau wifi + connexion
     if (SERIAL_PORT_LOG_ENABLE) {
       Serial.print(".");
@@ -123,7 +125,11 @@ void setup() {
       delay(1000);
       Serial.println("   \r");
     }
-  }//Loop connexion until Wifi Connetion is OK
+    cpt = cpt - 1;
+    if(cpt==0){
+      gotoSleep(5);//time to go to sleep during 2 minutes waiting for wifi
+    }
+  }//Loop connexion until Wifi Connetion is OK or cpt reach 0
 
   if (SERIAL_PORT_LOG_ENABLE) {
     Serial.println("");
@@ -191,8 +197,8 @@ void loop() {
     Serial.println("delay 1s ");
     delay(1000);
     InitSensors();
-    Serial.println("delay 50s ");
-    delay(50000);
+    Serial.println("delay 5s ");
+    delay(5000);
     TemperatureMeasurment();
      if((TempInt<-40) or (TempExt<-40)){
       TemperatureMeasurment();
