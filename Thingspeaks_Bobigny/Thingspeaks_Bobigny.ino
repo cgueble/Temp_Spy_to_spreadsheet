@@ -4,8 +4,7 @@
 #include <PubSubClient.h>
 #include <OneWire.h> 
 #include <DallasTemperature.h>
-//#include <Codes_CGU.h>// contient toutes les variables avec les loggins et les codes
-#include <C:\Users\chris\OneDrive\Documents\Arduino\libraries\Codes_CGU.h>
+#include <C:\Users\chris\Documents\Arduino\libraries_Perso\Codes_CGU.h>
 
 //****************Configuration pour Debug****************
 const boolean SERIAL_PORT_LOG_ENABLE = true; //true pour avoir la console active et false pour la desactiver ; il faut la desactiver pour l'application car meme pour que "verrou"
@@ -53,7 +52,8 @@ int WeekDay;
 
 //Variables pour la mesure de temperature
 float  TempInt = 0;
-float  TempExt = 0;
+float  TempExt1 = 0;
+float  TempExt2 = 0;
 
 //Variable pour la gestion de thingspeak
 const char* server = "mqtt.thingspeak.com";// Define the ThingSpeak MQTT broker
@@ -87,7 +87,8 @@ DallasTemperature sensors(&oneWire);
 //DeviceAddress insideThermometer, outsideThermometer;
 
 DeviceAddress insideThermometer    = { 0x28, 0x0C, 0x01, 0x07, 0xA8, 0x9E, 0x01, 0xBA };//280C0107A89E01BA
-DeviceAddress outsideThermometer   = { 0x28, 0xFF, 0xD6, 0x1B, 0xC4, 0x17, 0x05, 0x56 };//28FFD61BC4170556
+DeviceAddress outside1Thermometer   = { 0x28, 0xFF, 0xD6, 0x1B, 0xC4, 0x17, 0x05, 0x56 };//28FFD61BC4170556
+DeviceAddress outside2Thermometer   = { 0x28, 0xFF, 0x3A, 0xB8, 0xC4, 0x17, 0x04, 0xD2 };//28FF3AB8C41704D2
 
 //************************Debut de setup*************************
 void setup() {
@@ -200,7 +201,7 @@ void loop() {
     Serial.println("delay 5s ");
     delay(5000);
     TemperatureMeasurment();
-     if((TempInt<-40) or (TempExt<-40)){
+     if((TempInt <-40) or (TempExt1 <-40) or (TempExt2 <-40)){
       TemperatureMeasurment();
      }
     lastPostTime = millis();
@@ -426,7 +427,7 @@ void reconnect()
 }
 
 void mqttpublish() {
-  String data = String("field1=" + String(TempInt, DEC) + "&field2=" + String(TempExt, DEC) + "&field3=" + String(rssi, DEC));
+  String data = String("field1=" + String(TempInt, DEC) + "&field2=" + String(TempExt1, DEC) + "&field3=" + String(TempExt2, DEC) + "&field4=" + String(rssi, DEC));
   // Get the data string length
   int length = data.length();
   char msgBuffer[length];
@@ -609,10 +610,12 @@ void TemperatureMeasurment(){
 
   // print the device information
   printData(insideThermometer);
-  printData(outsideThermometer);
+  printData(outside1Thermometer);
+  printData(outside2Thermometer);
     
   TempInt = sensors.getTempCByIndex(0)+6;// Offset de -6°C sur le thermometre "interieure" => compensation de +6
-  TempExt = sensors.getTempCByIndex(1);
+  TempExt1 = sensors.getTempCByIndex(1);
+  TempExt2 = sensors.getTempCByIndex(2);
   
 }
 
@@ -680,7 +683,8 @@ void InitSensors()
   //
   // method 1: by index
   if (!sensors.getAddress(insideThermometer, 0)) Serial.println("Unable to find address for Device 0");
-  if (!sensors.getAddress(outsideThermometer, 1)) Serial.println("Unable to find address for Device 1");
+  if (!sensors.getAddress(outside1Thermometer, 1)) Serial.println("Unable to find address for Device 1");
+  if (!sensors.getAddress(outside2Thermometer, 2)) Serial.println("Unable to find address for Device 2");
 
   // method 2: search()
   // search() looks for the next device. Returns 1 if a new address has been
@@ -702,18 +706,29 @@ void InitSensors()
   Serial.println();
 
   Serial.print("Device 1 Address: ");
-  printAddress(outsideThermometer);
+  printAddress(outside1Thermometer);
+  Serial.println();
+  
+  Serial.print("Device 2 Address: ");
+  printAddress(outside2Thermometer);
   Serial.println();
 
   // set the resolution to 9 bit per device
   sensors.setResolution(insideThermometer, TEMPERATURE_PRECISION);
-  sensors.setResolution(outsideThermometer, TEMPERATURE_PRECISION);
-
+  sensors.setResolution(outside1Thermometer, TEMPERATURE_PRECISION);
+  sensors.setResolution(outside2Thermometer, TEMPERATURE_PRECISION);
+  
   Serial.print("Device 0 Resolution: ");
   Serial.print(sensors.getResolution(insideThermometer), DEC);
   Serial.println();
 
   Serial.print("Device 1 Resolution: ");
-  Serial.print(sensors.getResolution(outsideThermometer), DEC);
+  Serial.print(sensors.getResolution(outside1Thermometer), DEC);
   Serial.println();
+  
+Serial.print("Device 2 Resolution: ");
+  Serial.print(sensors.getResolution(outside2Thermometer), DEC);
+  Serial.println();
+  
+  
   }
